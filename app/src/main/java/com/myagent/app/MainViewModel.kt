@@ -2,6 +2,7 @@ package com.myagent.app
 
 import com.myagent.app.chat.ChatMessage
 import com.myagent.app.chat.OutgoingAttachment
+import com.myagent.app.model.ModelDownloadState
 import com.myagent.app.model.PersonaType
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
@@ -72,6 +73,10 @@ class MainViewModel(
   // --- 偏好 ---
   val onboardingCompleted: StateFlow<Boolean> = prefs.onboardingCompleted
 
+  // --- 模型下载 ---
+  val downloadState: StateFlow<ModelDownloadState> =
+    runtimeState(ModelDownloadState.Idle) { it.downloadState }
+
   /**
    * 前台/后台切换时启动 runtime
    */
@@ -88,6 +93,15 @@ class MainViewModel(
       ensureRuntime()
     }
     prefs.setOnboardingCompleted(value)
+  }
+
+  // --- 模型下载操作 ---
+  fun startModelDownload() {
+    ensureRuntime().startModelDownload()
+  }
+
+  fun skipModelDownload() {
+    ensureRuntime().skipModelDownload()
   }
 
   // --- 聊天操作 ---

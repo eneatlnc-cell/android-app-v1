@@ -1,6 +1,7 @@
 package com.myagent.app.ui
 
 import com.myagent.app.MainViewModel
+import com.myagent.app.model.ModelDownloadState
 import com.myagent.app.model.PersonaType
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -30,7 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * 首次使用引导流程 — 欢迎页 + 人格选择。
+ * 首次使用引导流程 — 欢迎页 → 模型下载 → 人格选择。
  */
 @Composable
 fun OnboardingFlow(
@@ -38,11 +41,32 @@ fun OnboardingFlow(
   modifier: Modifier = Modifier,
 ) {
   var step by rememberSaveable { mutableIntStateOf(0) }
+  val downloadState by viewModel.downloadState.collectAsState()
+
+  // 自动前进：下载完成后跳到人格选择
+  LaunchedEffect(downloadState) {
+    if (downloadState is ModelDownloadState.Completed && step == 1) {
+      step = 2
+    }
+  }
 
   Surface(modifier = modifier) {
     when (step) {
-      0 -> WelcomeStep(onNext = { step = 1 })
-      1 -> PersonaStep(
+      0 -> WelcomeStep(onNext = {
+        viewModel.startModelDownload()
+        step = 1
+      })
+      1 -> ModelDownloadStep(
+        state = downloadState,
+        onSkip = {
+          viewModel.skipModelDownload()
+          step = 2
+        },
+        onRetry = {
+          viewModel.startModelDownload()
+        },
+      )
+      2 -> PersonaStep(
         onSelect = { persona ->
           viewModel.setPersona(persona)
           viewModel.setOnboardingCompleted(true)
@@ -89,6 +113,19 @@ private fun WelcomeStep(onNext: () -> Unit) {
       Text("开始使用")
     }
   }
+}
+
+@Composable
+private fun ModelDownloadStep(
+  state: ModelDownloadState,
+  onSkip: () -> Unit,
+  onRetry: () -> Unit,
+) {
+  ModelDownloadScreen(
+    state = state,
+    onSkip = onSkip,
+    onRetry = onRetry,
+  )
 }
 
 @Composable

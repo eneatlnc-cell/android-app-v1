@@ -20,4 +20,13 @@
     <string name="tab_chat">聊天</string>
     <string name="tab_settings">设置</string>
     <string name="loading">加载中...</string>
+    <string name="download_title">正在激活灵机</string>
+    <string name="download_desc">首次使用需要下载 AI 模型（约 200MB）</string>
+    <string name="download_skip">跳过，先用 Mock 模式</string>
+    <string name="download_retry">重试</string>
+    <string name="download_connecting">正在连接服务器...</string>
+    <string name="download_verifying">正在校验模型文件...</string>
+    <string name="download_complete">激活完成！</string>
+    <string name="download_complete_desc">灵机已就绪，开始你的 AI 之旅吧</string>
+    <string name="download_failed">下载失败</string>
 </resources>

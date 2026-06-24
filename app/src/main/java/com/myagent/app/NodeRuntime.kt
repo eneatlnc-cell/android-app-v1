@@ -5,18 +5,21 @@ import com.myagent.app.chat.ChatMessage
 import com.myagent.app.chat.OutgoingAttachment
 import com.myagent.app.memory.MemoryManager
 import com.myagent.app.model.LocalModelLoader
+import com.myagent.app.model.ModelDownloadState
 import com.myagent.app.model.ModelInstaller
 import com.myagent.app.model.PersonaManager
 import com.myagent.app.model.PersonaType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 /**
- * 灵机 v2.0 运行时 — 管理 UI 状态、聊天控制器、模型加载器。
+ * 灵机 v2.0 运行时 — 管理 UI 状态、聊天控制器、模型加载器、下载状态。
  *
  * 不再依赖 Gateway，所有推理在本地完成。
  */
@@ -34,12 +37,56 @@ class NodeRuntime(
   // 本地模型加载器（Mock 模式：modelPath 为 null 时自动降级）
   val modelLoader: LocalModelLoader = run {
     val modelFile = modelInstaller.getModelPath()
-    val path = if (modelFile.exists()) modelFile.absolutePath else null
+    val path = if (modelInstaller.isModelReady()) modelFile.absolutePath else null
     LocalModelLoader(path)
   }
 
   // 聊天控制器
   val chatController = ChatController(scope, modelLoader, memoryManager, personaManager)
+
+  // --- 模型下载状态 ---
+
+  private val _downloadState = MutableStateFlow<ModelDownloadState>(ModelDownloadState.Idle)
+  val downloadState: StateFlow<ModelDownloadState> = _downloadState.asStateFlow()
+
+  private var downloadJob: Job? = null
+
+  /** 是否已经运行过下载流程（无论成功失败） */
+  private val modelDownloadFinished: Boolean
+    get() = _downloadState.value is ModelDownloadState.Completed ||
+      _downloadState.value is ModelDownloadState.Failed
+
+  /**
+   * 触发模型下载。如果已完成或正在下载则忽略。
+   */
+  fun startModelDownload() {
+    if (_downloadState.value is ModelDownloadState.Completed ||
+      _downloadState.value is ModelDownloadState.Downloading
+    ) return
+
+    downloadJob?.cancel()
+    downloadJob = scope.launch {
+      modelInstaller.downloadModel().collect { state ->
+        _downloadState.value = state
+      }
+    }
+  }
+
+  /**
+   * 跳过下载，继续使用 Mock 模式。
+   */
+  fun skipModelDownload() {
+    downloadJob?.cancel()
+    downloadJob = null
+    _downloadState.value = ModelDownloadState.Completed
+  }
+
+  /**
+   * 模型是否已就绪（已下载校验通过，或用户选择跳过）
+   */
+  val isModelReady: Boolean
+    get() = _downloadState.value is ModelDownloadState.Completed ||
+      modelInstaller.isModelReady()
 
   // --- UI 状态 ---
 
