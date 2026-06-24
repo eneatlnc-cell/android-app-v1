@@ -1,44 +1,108 @@
 package com.myagent.app.model
 
+import android.util.Log
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.delay
 
 /**
- * 本地模型加载器 — 封装 llama.cpp JNI 调用，提供流式推理接口。
+ * 本地模型加载器 — 优先使用 llama.cpp 真实推理，模型不可用时降级为 Mock。
  *
- * 当前阶段：Mock 模式，模拟 Gemma 3 270M 的推理效果。
- * 后续接入 llama.cpp 后替换 generate() 实现即可。
+ * 使用方式：
+ * 1. 构造时传入 modelPath（非 null 表示模型已就绪）
+ * 2. 调用 init(nativeLibDir) 初始化 llama.cpp 后端
+ * 3. 调用 generate(prompt) 获取流式响应
+ * 4. 如果模型是后续下载的，调用 reload(modelPath, nativeLibDir) 重新初始化
  */
 class LocalModelLoader(
-  private val modelPath: String?,
+  private var modelPath: String?,
 ) {
+  companion object {
+    private const val TAG = "LocalModelLoader"
+  }
+
+  private val engine = LlamaEngine()
+  @Volatile private var initialized = false
+
   /**
-   * 流式生成回复，逐 token 发射。
-   * 当前为 Mock 实现，返回预设的搭子风格回复，模拟流式输出。
+   * 初始化 llama.cpp 后端。如果模型不可用则跳过。
    */
-  fun generate(prompt: String): Flow<String> = flow {
+  fun init(nativeLibDir: String) {
+    if (modelPath == null) {
+      Log.i(TAG, "No model available, using Mock mode")
+      return
+    }
+    doInitialize(modelPath!!, nativeLibDir)
+  }
+
+  /**
+   * 模型下载完成后重新加载引擎。
+   */
+  fun reload(newModelPath: String, nativeLibDir: String) {
+    modelPath = newModelPath
+    doInitialize(newModelPath, nativeLibDir)
+  }
+
+  private fun doInitialize(path: String, nativeLibDir: String) {
+    try {
+      engine.init(nativeLibDir)
+      if (!engine.loadModel(path)) {
+        Log.e(TAG, "Model load failed, falling back to Mock")
+        return
+      }
+      if (!engine.prepare()) {
+        Log.e(TAG, "Context prepare failed, falling back to Mock")
+        return
+      }
+      initialized = true
+      Log.i(TAG, "llama.cpp engine ready: $path")
+    } catch (e: Exception) {
+      Log.e(TAG, "Engine init failed: ${e.message}, falling back to Mock")
+      initialized = false
+    }
+  }
+
+  /**
+   * 流式生成回复。
+   * - 模型就绪 → llama.cpp 真实推理
+   * - 模型不可用 → Mock 降级
+   */
+  fun generate(prompt: String): Flow<String> {
+    if (initialized && modelPath != null) {
+      return engine.generate(prompt)
+    }
+    return mockGenerate(prompt)
+  }
+
+  /**
+   * 检查真实推理是否可用
+   */
+  fun isRealModelAvailable(): Boolean = initialized && modelPath != null
+
+  /**
+   * 卸载模型释放内存
+   */
+  fun unload() {
+    if (initialized) {
+      engine.unload()
+      initialized = false
+    }
+  }
+
+  // ── Mock 回复 ──
+
+  private fun mockGenerate(prompt: String): Flow<String> = flow {
     val response = mockResponse(prompt)
-    // 模拟流式输出：每次发射 1-2 个字符
     var i = 0
     while (i < response.length) {
       val chunkSize = if (i % 3 == 0) 2 else 1
       val end = minOf(i + chunkSize, response.length)
       emit(response.substring(i, end))
-      delay(30) // 模拟推理延迟
+      delay(30)
       i = end
     }
   }
 
-  /**
-   * 检查模型是否可用
-   */
-  fun isModelAvailable(): Boolean = modelPath != null
-
-  /**
-   * Mock 回复生成 — 根据用户输入返回搭子风格的回复。
-   * 后续接入 llama.cpp 后删除此方法。
-   */
   private fun mockResponse(prompt: String): String {
     val input = prompt.trim().lowercase()
 

@@ -1,8 +1,25 @@
--dontwarn org.bouncycastle.**
--dontwarn okhttp3.**
--dontwarn okio.**
--dontwarn com.sun.jna.**
+# ── Lingji v2.0 ProGuard ──
+
+# Keep JNI native methods
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+# Keep LlamaEngine native methods
+-keep class com.myagent.app.model.LlamaEngine {
+    native <methods>;
+}
+
+# Keep Room entities
+-keep class com.myagent.app.memory.** { *; }
+
+# General
 -dontwarn javax.naming.**
 -dontwarn lombok.Generated
 -dontwarn org.slf4j.impl.StaticLoggerBinder
--dontwarn sun.net.spi.nameservice.NameServiceDescriptor
+
+# Remove verbose logging in release
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+}

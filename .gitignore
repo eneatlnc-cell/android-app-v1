@@ -8,6 +8,8 @@
 /captures
 .externalNativeBuild
 .cxx
+/build-llama
+/obj
 local.properties
 *.apk
 *.aab

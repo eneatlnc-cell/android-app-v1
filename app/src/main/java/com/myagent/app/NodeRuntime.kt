@@ -38,7 +38,18 @@ class NodeRuntime(
   val modelLoader: LocalModelLoader = run {
     val modelFile = modelInstaller.getModelPath()
     val path = if (modelInstaller.isModelReady()) modelFile.absolutePath else null
-    LocalModelLoader(path)
+    LocalModelLoader(path).also {
+      // 如果模型已就绪，立即初始化 llama.cpp 后端
+      if (path != null) {
+        initModelEngine(it)
+      }
+    }
+  }
+
+  /** 初始化 llama.cpp 推理引擎 */
+  private fun initModelEngine(loader: LocalModelLoader) {
+    val nativeLibDir = app.applicationInfo.nativeLibDir
+    loader.init(nativeLibDir)
   }
 
   // 聊天控制器
@@ -68,6 +79,12 @@ class NodeRuntime(
     downloadJob = scope.launch {
       modelInstaller.downloadModel().collect { state ->
         _downloadState.value = state
+        // 下载完成后，初始化 llama.cpp 引擎
+        if (state is ModelDownloadState.Completed && modelInstaller.isModelReady()) {
+          val modelPath = modelInstaller.getModelPath().absolutePath
+          val nativeLibDir = app.applicationInfo.nativeLibDir
+          modelLoader.reload(modelPath, nativeLibDir)
+        }
       }
     }
   }
