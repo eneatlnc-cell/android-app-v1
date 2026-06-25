@@ -104,6 +104,10 @@ class MainViewModel(
     ensureRuntime().skipModelDownload()
   }
 
+  fun resetModelDownload() {
+    ensureRuntime().resetAndStartDownload()
+  }
+
   // --- 聊天操作 ---
   fun sendChat(message: String, attachments: List<OutgoingAttachment> = emptyList()) {
     ensureRuntime().sendChat(message, attachments)

@@ -99,6 +99,16 @@ class NodeRuntime(
   }
 
   /**
+   * 重置下载状态，允许重新触发下载（从设置页调用）。
+   */
+  fun resetAndStartDownload() {
+    downloadJob?.cancel()
+    downloadJob = null
+    _downloadState.value = ModelDownloadState.Idle
+    startModelDownload()
+  }
+
+  /**
    * 模型是否已就绪（已下载校验通过，或用户选择跳过）
    */
   val isModelReady: Boolean

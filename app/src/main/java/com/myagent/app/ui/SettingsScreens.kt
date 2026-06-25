@@ -1,6 +1,8 @@
 package com.myagent.app.ui
 
+import com.myagent.app.AppearanceThemeMode
 import com.myagent.app.MainViewModel
+import com.myagent.app.model.ModelDownloadState
 import com.myagent.app.model.PersonaType
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -14,9 +16,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /**
@@ -43,6 +49,7 @@ fun SettingsScreen(
 ) {
   val currentPersona by viewModel.currentPersona.collectAsState()
   val appearanceMode by viewModel.appearanceThemeMode.collectAsState()
+  val downloadState by viewModel.downloadState.collectAsState()
   var showPersonaDialog by remember { mutableStateOf(false) }
   var showAppearanceDialog by remember { mutableStateOf(false) }
 
@@ -72,14 +79,20 @@ fun SettingsScreen(
       icon = Icons.Default.Palette,
       title = "外观",
       subtitle = when (appearanceMode) {
-        com.myagent.app.AppearanceThemeMode.System -> "跟随系统"
-        com.myagent.app.AppearanceThemeMode.Light -> "浅色"
-        com.myagent.app.AppearanceThemeMode.Dark -> "深色"
+        AppearanceThemeMode.System -> "跟随系统"
+        AppearanceThemeMode.Light -> "浅色"
+        AppearanceThemeMode.Dark -> "深色"
       },
       onClick = { showAppearanceDialog = true },
     )
 
     HorizontalDivider()
+
+    // 模型下载
+    DownloadSection(
+      state = downloadState,
+      onStartDownload = { viewModel.resetModelDownload() },
+    )
 
     Spacer(modifier = Modifier.height(32.dp))
 
@@ -187,15 +200,66 @@ private fun PersonaDialog(
 }
 
 @Composable
+private fun DownloadSection(
+  state: ModelDownloadState,
+  onStartDownload: () -> Unit,
+) {
+  val isDownloading = state is ModelDownloadState.Downloading || state is ModelDownloadState.Verifying
+  val isCompleted = state is ModelDownloadState.Completed
+
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .padding(vertical = 12.dp, horizontal = 4.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    Icon(
+      imageVector = Icons.Default.Download,
+      contentDescription = null,
+      tint = if (isCompleted) Color(0xFF4ECDC4) else MaterialTheme.colorScheme.primary,
+    )
+    Spacer(modifier = Modifier.width(16.dp))
+    Column(modifier = Modifier.weight(1f)) {
+      Text(
+        text = "AI 模型",
+        style = MaterialTheme.typography.bodyLarge,
+      )
+      Text(
+        text = when {
+          isCompleted -> "模型已就绪"
+          isDownloading -> "正在下载..."
+          state is ModelDownloadState.Failed -> "下载失败，点击下载"
+          state is ModelDownloadState.Idle -> "未下载，点击下载"
+          else -> "未下载，点击下载"
+        },
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+      )
+    }
+    if (!isDownloading && !isCompleted) {
+      Button(
+        onClick = onStartDownload,
+        colors = ButtonDefaults.buttonColors(
+          containerColor = Color(0xFF4ECDC4),
+        ),
+      ) {
+        Text("下载")
+      }
+    }
+  }
+  HorizontalDivider()
+}
+
+@Composable
 private fun AppearanceDialog(
-  currentMode: com.myagent.app.AppearanceThemeMode,
-  onSelect: (com.myagent.app.AppearanceThemeMode) -> Unit,
+  currentMode: AppearanceThemeMode,
+  onSelect: (AppearanceThemeMode) -> Unit,
   onDismiss: () -> Unit,
 ) {
   val modes = listOf(
-    com.myagent.app.AppearanceThemeMode.System to "跟随系统",
-    com.myagent.app.AppearanceThemeMode.Light to "浅色",
-    com.myagent.app.AppearanceThemeMode.Dark to "深色",
+    AppearanceThemeMode.System to "跟随系统",
+    AppearanceThemeMode.Light to "浅色",
+    AppearanceThemeMode.Dark to "深色",
   )
 
   AlertDialog(
