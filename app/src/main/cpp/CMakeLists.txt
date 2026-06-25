@@ -27,6 +27,11 @@ endif()
 # ── Build llama.cpp ──
 set(LLAMA_BUILD_COMMON ON)
 set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/llama.cpp)
+
+# nlohmann/json 依赖（vendor 中提供的单头文件）
+include_directories(BEFORE ${LLAMA_SRC}/vendor/json/single_include)
+include_directories(BEFORE ${LLAMA_SRC}/vendor/json/include)
+
 add_subdirectory(${LLAMA_SRC} build-llama)
 
 # ── Lingji JNI library ──
