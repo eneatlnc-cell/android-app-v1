@@ -25,6 +25,7 @@ if(DEFINED ANDROID_ABI)
 endif()
 
 # ── Build llama.cpp ──
+set(LLAMA_BUILD_COMMON ON)
 set(LLAMA_SRC ${CMAKE_CURRENT_LIST_DIR}/llama.cpp)
 add_subdirectory(${LLAMA_SRC} build-llama)
 
