@@ -1,34 +1,31 @@
 package com.myagent.app.model
 
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * 本地模型加载器 — 优先使用 llama.cpp 真实推理，模型不可用时降级为 Mock。
- *
- * 使用方式：
- * 1. 构造时传入 modelPath（非 null 表示模型已就绪）
- * 2. 调用 init(nativeLibDir) 初始化 llama.cpp 后端
- * 3. 调用 generate(prompt) 获取流式响应
- * 4. 如果模型是后续下载的，调用 reload(modelPath, nativeLibDir) 重新初始化
  */
 class LocalModelLoader(
   private var modelPath: String?,
 ) {
   companion object {
     private const val TAG = "LocalModelLoader"
+    private const val INFERENCE_TIMEOUT_MS = 30_000L
   }
 
   private val engine = LlamaEngine()
   @Volatile private var initialized = false
 
-  /**
-   * 初始化 llama.cpp 后端。如果模型不可用则跳过。
-   */
   fun init(nativeLibDir: String) {
     if (modelPath == null) {
       Log.i(TAG, "No model available, using Mock mode")
@@ -37,9 +34,6 @@ class LocalModelLoader(
     doInitialize(modelPath!!, nativeLibDir)
   }
 
-  /**
-   * 模型下载完成后重新加载引擎。
-   */
   fun reload(newModelPath: String, nativeLibDir: String) {
     modelPath = newModelPath
     doInitialize(newModelPath, nativeLibDir)
@@ -56,6 +50,11 @@ class LocalModelLoader(
         Log.e(TAG, "Context prepare failed, falling back to Mock")
         return
       }
+      // 快速自检：做一次 tokenize → decode → sample 验证管线正常
+      if (!engine.ping()) {
+        Log.e(TAG, "Inference ping failed, falling back to Mock")
+        return
+      }
       initialized = true
       Log.i(TAG, "llama.cpp engine ready: $path")
     } catch (e: Exception) {
@@ -66,44 +65,49 @@ class LocalModelLoader(
 
   /**
    * 流式生成回复。
-   * - 模型就绪 → llama.cpp 真实推理（带 15 秒超时，超时自动降级 Mock）
-   * - 模型不可用 → Mock 降级
+   *
+   * 使用 callbackFlow 将 JNI 阻塞调用放到独立线程，
+   * 用 withTimeoutOrNull 在超时后停止收集（不阻塞 UI）。
    */
   fun generate(prompt: String): Flow<String> {
-    if (initialized && modelPath != null) {
-      return flow {
-        // 先尝试真实推理，15 秒内没产出就降级 Mock
-        val result = withTimeoutOrNull(15_000L) {
-          val sb = StringBuilder()
-          engine.generate(prompt).collect { chunk ->
-            sb.append(chunk)
-            emit(chunk)
-          }
-          sb.toString()
-        }
-        if (result == null) {
-          // 超时了，降级 Mock
-          Log.w(TAG, "Model inference timed out, falling back to Mock")
-          initialized = false
-          mockGenerate(prompt).collect { emit(it) }
-        }
-      }.catch { e ->
-        Log.e(TAG, "Model inference error: ${e.message}, falling back to Mock")
-        initialized = false
-        mockGenerate(prompt).collect { emit(it) }
-      }
+    if (!initialized || modelPath == null) {
+      return mockGenerate(prompt)
     }
-    return mockGenerate(prompt)
+    return callbackFlow {
+      val inferenceScope = CoroutineScope(Dispatchers.IO)
+
+      val inferenceJob = inferenceScope.launch {
+        try {
+          engine.generate(prompt).collect { chunk ->
+            trySend(chunk)
+          }
+        } catch (e: Exception) {
+          Log.e(TAG, "Inference error: ${e.message}")
+        }
+        close()
+      }
+
+      // 等待推理完成或超时
+      val finished = withTimeoutOrNull(INFERENCE_TIMEOUT_MS) {
+        inferenceJob.join()
+        true
+      }
+
+      if (finished != true) {
+        // 超时了 — 停止等待，JNI 线程会被 abandon
+        inferenceScope.cancel()
+        Log.e(TAG, "Inference timed out after ${INFERENCE_TIMEOUT_MS}ms")
+        trySend("抱歉，模型推理超时了。可能是手机内存不足，请尝试：\n1. 重启 App\n2. 在设置中切换到 Mock 模式")
+        initialized = false
+        close()
+      }
+
+      awaitClose { inferenceScope.cancel() }
+    }
   }
 
-  /**
-   * 检查真实推理是否可用
-   */
   fun isRealModelAvailable(): Boolean = initialized && modelPath != null
 
-  /**
-   * 卸载模型释放内存
-   */
   fun unload() {
     if (initialized) {
       engine.unload()
@@ -145,19 +149,19 @@ class LocalModelLoader(
         "拜拜宝！随时找我，我永远在~ 👋"
 
       input.contains("笑话") || input.contains("搞笑") || input.contains("段子") ->
-        "为什么程序员总是分不清万圣节和圣诞节？因为 Oct 31 == Dec 25！😂 好吧我知道这个有点冷..."
+        "为什么程序员总是分不清万圣节和圣诞节？因为 Oct 31 == Dec 25！😂"
 
       input.contains("无聊") || input.contains("没意思") || input.contains("好闲") ->
-        "无聊的时候最适合来找我聊天了！要不我给你讲个八卦？虽然我其实没有八卦可以讲..."
+        "无聊的时候最适合来找我聊天了！"
 
       input.contains("emo") || input.contains("难过") || input.contains("不开心") || input.contains("伤心") ->
         "抱抱！不管发生什么，我都在这里。想吐槽就尽情吐槽，我听着呢 ❤️"
 
       input.contains("学习") || input.contains("考试") || input.contains("作业") ->
-        "学霸模式启动！虽然我有时候也不靠谱，但陪你一起学习还是可以的。哪里卡住了？"
+        "学霸模式启动！哪里卡住了？"
 
       input.contains("推荐") || input.contains("安利") ->
-        "我强烈安利...睡觉！开个玩笑，你想让我推荐哪方面的？音乐、电影、游戏还是学习资料？"
+        "你想让我推荐哪方面的？音乐、电影、游戏还是学习资料？"
 
       input.length < 5 ->
         "嗯？宝你说啥？我没太听清，再说一遍呗~"

@@ -23,6 +23,7 @@ class LlamaEngine {
   private external fun nativePrepare(): Int
   private external fun nativeProcessPrompt(prompt: String): Int
   private external fun nativeGenerateNextToken(): String?
+  private external fun nativePing(): Boolean
   private external fun nativeUnload()
   private external fun nativeShutdown()
 
@@ -62,6 +63,20 @@ class LlamaEngine {
     ready = true
     Log.i(TAG, "Context prepared")
     return true
+  }
+
+  /**
+   * 快速自检：执行一次完整的 tokenize → decode → sample 流程。
+   * 返回 true 表示推理管线正常工作。
+   */
+  fun ping(): Boolean {
+    if (!ready) return false
+    return try {
+      nativePing()
+    } catch (e: Exception) {
+      Log.e(TAG, "Ping failed: ${e.message}")
+      false
+    }
   }
 
   /**

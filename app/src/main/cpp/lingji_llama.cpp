@@ -20,8 +20,8 @@ constexpr int N_THREADS_MIN      = 2;
 constexpr int N_THREADS_MAX      = 4;
 constexpr int N_THREADS_HEADROOM = 2;
 
-constexpr int DEFAULT_CONTEXT_SIZE = 4096;
-constexpr int BATCH_SIZE           = 512;
+constexpr int DEFAULT_CONTEXT_SIZE = 2048;
+constexpr int BATCH_SIZE           = 256;
 constexpr int OVERFLOW_HEADROOM    = 4;
 constexpr float DEFAULT_TEMP       = 0.7f;
 
@@ -267,6 +267,32 @@ Java_com_myagent_app_model_LlamaEngine_nativeGenerateNextToken(
         result = env->NewStringUTF("");
     }
     return result;
+}
+
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_com_myagent_app_model_LlamaEngine_nativePing(
+    JNIEnv * /*env*/, jobject /*unused*/)
+{
+    if (!g_context || !g_sampler) return JNI_FALSE;
+
+    // Tokenize a short test prompt
+    auto tokens = common_tokenize(g_context, "Hello", false, false);
+    if (tokens.empty()) return JNI_FALSE;
+
+    // Decode
+    common_batch_clear(g_batch);
+    for (int i = 0; i < (int)tokens.size(); i++) {
+        common_batch_add(g_batch, tokens[i], i, {0}, i == (int)tokens.size() - 1);
+    }
+    if (llama_decode(g_context, g_batch) != 0) return JNI_FALSE;
+
+    // Sample one token to verify full pipeline works
+    const auto token = common_sampler_sample(g_sampler, g_context, -1);
+    if (token < 0) return JNI_FALSE;
+
+    LOGi("Ping OK — inference pipeline works");
+    return JNI_TRUE;
 }
 
 extern "C"
